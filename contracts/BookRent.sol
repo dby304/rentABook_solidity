@@ -2,32 +2,41 @@
 
 pragma solidity ^0.7.0;
 
-// a simple contract for renting books
-// there's limited number of books that can be rent in a day
-// the qty of books will be fully restored every midnight --> for now it is manually reset
+// a simple contract for renting e-books
+// there are several titles of book that can be rented out. since this is an e-book, no need to return it back
+// after rent transaction, the user can access the selected title for a period of time --> for testing purpose, it is now limited for 1 minutes after transaction
 // the price to rent a book is 1 ether --> currently if msg.value is more than 1 ether, the excess value will be sent back first
-// make sure whether the sender has rent a book that day, otherwise they can't rent a book
+
 
 contract BookRent{
 
     address payable public owner;
-    uint initStock;
-    uint bookStock;
-    uint fee = 1 ether;
-    address[] renter;
+    uint fee;
+    Renter[] renter;
+    BookTitle[] public bookTitles;
+
+    mapping(uint => string) bookTitle;
+
+    struct Renter{
+        address person;
+        uint bookId;
+        uint validUntil;
+    }
+
+    struct BookTitle{
+        uint bookId;
+        string bookTitle;
+    }
 
     constructor(){
         owner = msg.sender;
-        initStock = 3;
-        bookStock = initStock;
-        renter = new address[](bookStock);
+        fee = 1 ether;
+        bookTitles.push(BookTitle(0, "A Study in Scarlet"));
+        bookTitles.push(BookTitle(1, "Brokeback Mountain"));
+        bookTitles.push(BookTitle(2, "Children of Sokovia"));
+        bookTitles.push(BookTitle(3, "Daydreams"));
     }
 
-    // check if book is still available
-    modifier checkAvailability {
-        require (bookStock > 0 , "There's no book left. Please return tomorrow.");
-        _;
-    }
 
     // check if sender has sufficient balance
     modifier checkBalance {
@@ -35,43 +44,50 @@ contract BookRent{
         _;
     }
 
+    // check isOwner
+    function checkIsOwner() internal view returns(bool){
+        bool isOwner = false;
+        if(msg.sender == owner){
+            isOwner = true;
+        }
+        return isOwner;
+    }
+
     // check if sender is not owner, and also to transfer back the excess values
     modifier checkSender {
-        require (msg.sender != owner, "You can't rent books here");
+        require (checkIsOwner() == false, "You can't rent books here");
         if(msg.value > fee){
             msg.sender.transfer(msg.value - fee);
         }
         _;
     }
 
-    // check if sender has rent a book for today
-    modifier checkHasRent{
-        bool hasRent = false;
+    // check if renter still has active rent on said book
+    function checkStillActive(uint _bookId) internal view returns(bool){
+        bool stillActive = false;
         uint i = 0;
-        while(hasRent == false && i < initStock - bookStock){
-            if(renter[i] == msg.sender){
-                hasRent = true;
+        while (stillActive == false && i< renter.length){
+            if(renter[i].person == msg.sender && renter[i].bookId == _bookId && renter[i].validUntil > block.timestamp){
+                stillActive = true;
             }
             i++;
         }
-        require (hasRent == false, "You have rent a book for today. Please come again tomorrow");
-        _;
+        return stillActive;
     }
-    
-    // rent transaction; transfer the fee to owner, reduct qty of books available, and add sender address to renter[]
-    function rentAbook() payable external checkAvailability checkBalance checkSender checkHasRent{
-        bookStock --;
+
+    // rent transaction, check if they already rent said book or whether they input the right book Id
+    // if all condition is met, proceed to pay rent fee and record the rent (address, bookId, expired time)
+    function rentAbook(uint _bookId) payable external checkBalance checkSender{
+        require (checkStillActive(_bookId) == false, "You already have active rent on this book");
+        require (_bookId < bookTitles.length, "Wrong book Id");
         owner.transfer(fee);
-        renter[initStock - 1 - bookStock] = msg.sender;
+        renter.push(Renter(msg.sender, _bookId, block.timestamp + 60));
     }
 
-    // reset book stock
-    function resetStock() external { 
-        require (msg.sender == owner, "You are not authorized to do this call");
-        bookStock = initStock;
-        renter = new address[](bookStock);
+    // read the book after transaction
+    function readABook(uint _bookId) external view{
+        require (checkStillActive(_bookId) == true, "You don't have active rent on this book");
     }
-
 
 
 }
